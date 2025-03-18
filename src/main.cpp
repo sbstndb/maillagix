@@ -52,7 +52,7 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
     saveToText(grid, "frame_000.txt");
     #pragma omp parallel
     for (int t = 0; t < steps; ++t) {
-        #pragma omp for schedule(static, 100) 
+        #pragma omp for schedule(guided) 
         for (int j = 1; j < grid.ny - 1; ++j) {
             for (int i = 1; i < grid.nx - 1; ++i) {
                 int idx = i + j * grid.nx;
@@ -63,6 +63,8 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
                 u_new[idx] = grid.u[idx] - dt / grid.dx * (flux_e - flux_w) - dt / grid.dy * (flux_n - flux_s);
             }
         }
+	#pragma omp single
+	{
 	swap(grid.u, u_new);
 
         // Saving data
@@ -72,12 +74,13 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
             ss << "frame_" << std::setfill('0') << std::setw(3) << frame << ".txt";
             saveToText(grid, ss.str());
         }
+	}
     }
 }
 
 int main() {
     // Init of the computation
-    int nx = 2048, ny = 2048;
+    int nx = 4096, ny = 4096;
     double dx = 1.0 / (nx - 1), dy = 1.0 / (ny - 1);
     Grid grid(nx, ny, dx, dy);
 
