@@ -48,3 +48,10 @@ This script read the files named `frame_<xxx>.txt` and produces the animation `a
 Note : The `plot.gp` file is assuming the simulation was done with `nx == ny == 4096` and 25 frames.
 Note : Gnuplot is SLOW. I will implement matplotlib and paraview scripts later.
 
+# TODO
+- [ ] Add an hybrid OpenMP/MPI version
+- [ ] Add MPI shared version (MPI RDMA, or SHMEM implementation)
+- [ ] Improve vectorization
+- [ ] Add Paraview and Matplotlib scripts for the output
+- [ ] Add benchmarking scripts
+
