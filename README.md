@@ -46,4 +46,5 @@ gnuplot plot.gp
 ```
 This script read the files named `frame_<xxx>.txt` and produces the animation `animation.gif`.
 Note : The `plot.gp` file is assuming the simulation was done with `nx == ny == 4096` and 25 frames.
+Note : Gnuplot is SLOW. I will implement matplotlib and paraview scripts later.
 
