@@ -20,16 +20,29 @@ struct Grid {
 enum class StencilType { Upwind, Central };
 
 // Flux 
-double computeFlux(double u_left, double u_right, StencilType stencil, double velocity) {
+double computeFluxNeg(double u_left, double u_right, StencilType stencil, double velocity) {
     switch (stencil) {
         case StencilType::Upwind:
-            return velocity > 0 ? velocity * u_left : velocity * u_right;
+            return velocity * u_right;
         case StencilType::Central:
             return velocity * (u_left + u_right) / 2.0;
         default:
             return 0.0;
     }
 }
+
+// Flux 
+double computeFluxPos(double u_left, double u_right, StencilType stencil, double velocity) {
+    switch (stencil) {
+        case StencilType::Upwind:
+            return velocity * u_left;
+        case StencilType::Central:
+            return velocity * (u_left + u_right) / 2.0;
+        default:
+            return 0.0;
+    }
+}
+
 
 // GNUPLOT saving
 void saveToText(const Grid& grid, const std::string& filename) {
@@ -59,10 +72,20 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
         for (int j = 1; j < grid.ny - 1; ++j) {
             for (int i = 1; i < grid.nx - 1; ++i) {
                 int idx = i + j * grid.nx;
-                double flux_w = computeFlux(grid.u[idx - 1], grid.u[idx], stencil, velocity);
-                double flux_e = computeFlux(grid.u[idx], grid.u[idx + 1], stencil, velocity);
-                double flux_s = computeFlux(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
-                double flux_n = computeFlux(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
+		auto pos = velocity > 0 ? true : false ;
+		double flux_w, flux_e, flux_s, flux_n ; 
+		if (pos){
+	                flux_w = computeFluxPos(grid.u[idx - 1], grid.u[idx], stencil, velocity);
+	                flux_e = computeFluxPos(grid.u[idx], grid.u[idx + 1], stencil, velocity);
+	                flux_s = computeFluxPos(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
+	                flux_n = computeFluxPos(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
+		}
+		else{
+	                flux_w = computeFluxNeg(grid.u[idx - 1], grid.u[idx], stencil, velocity);
+	                flux_e = computeFluxNeg(grid.u[idx], grid.u[idx + 1], stencil, velocity);
+	                flux_s = computeFluxNeg(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
+	                flux_n = computeFluxNeg(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
+		}
                 u_new[idx] = grid.u[idx] - dt_dx * (flux_e - flux_w) - dt_dy * (flux_n - flux_s);
             }
         }
