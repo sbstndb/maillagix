@@ -46,7 +46,7 @@ void saveToText(const Grid& grid, const std::string& filename) {
 // Finit volume solver
 void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int save_interval) {
     std::vector<double> u_new(grid.u.size());
-    double dt = 0.1 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
+    double dt = 0.5 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
 
     // Save init state
     saveToText(grid, "frame_000.txt");
@@ -63,7 +63,7 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
                 u_new[idx] = grid.u[idx] - dt / grid.dx * (flux_e - flux_w) - dt / grid.dy * (flux_n - flux_s);
             }
         }
-        grid.u = u_new; // Update the solution
+	swap(grid.u, u_new);
 
         // Saving data
         if ((t + 1) % save_interval == 0) {
@@ -77,7 +77,7 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
 
 int main() {
     // Init of the computation
-    int nx = 128, ny = 128;
+    int nx = 2048, ny = 2048;
     double dx = 1.0 / (nx - 1), dy = 1.0 / (ny - 1);
     Grid grid(nx, ny, dx, dy);
 
@@ -86,16 +86,23 @@ int main() {
     for (int j = 0; j < ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             double x = i * dx, y = j * dy;
-            grid.u[i + j * nx] = std::exp(-50 * ((x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5)));
+	    int index = i + j * nx;
+//            grid.u[i + j * nx] = std::exp(-50 * ((x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5)));
+	    if (j > ny / 4 && j < ny / 2 && i > nx / 4 && i < nx / 2){
+		    grid.u[index] = 1.0;
+	    }
+	    else{
+		grid.u[index] = 0.0 ; 
+	    }
         }
     }
 
     // Compute loop
     double velocity = 1.0;
-//    StencilType stencil = StencilType::Upwind;
-    StencilType stencil = StencilType::Central;
-    int steps = 1000;
-    int save_interval = 10;
+    StencilType stencil = StencilType::Upwind;
+//    StencilType stencil = StencilType::Central;
+    int steps = 500;
+    int save_interval = 200;
     solveFV(grid, velocity, stencil, steps, save_interval);
 
     std::cout << "Simulation finished. The frames are saved from frame_000.txt to frame_100.txt.\n";  
