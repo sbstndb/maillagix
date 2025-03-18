@@ -77,7 +77,7 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
 
 int main() {
     // Init of the computation
-    int nx = 1024, ny = 1024;
+    int nx = 128, ny = 128;
     double dx = 1.0 / (nx - 1), dy = 1.0 / (ny - 1);
     Grid grid(nx, ny, dx, dy);
 
