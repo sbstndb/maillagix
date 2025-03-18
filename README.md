@@ -21,8 +21,8 @@ This project implements a 2D advection simulation using the finite volume method
 ## Installation and Build Instructions
 
 1. **Clone the repository:**
-   ```bash
-   git clone <repository_url>
+```bash
+   git clone https://github.com/sbstndb/maillagix
    cd maillagix
 ```
 
