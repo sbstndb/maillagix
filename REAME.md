@@ -3,6 +3,9 @@
 ## Overview
 This project implements a 2D advection simulation using the finite volume method in C++. The simulation leverages OpenMP for parallelism and outputs simulation frames as text files that can be visualized using Gnuplot. Two numerical flux schemes are available: Upwind and Central.
 
+![2D Advection simulation using Upwing flux](images/animation.gif)
+
+
 ## Features
 - **2D Finite Volume Solver:** Implements a solver for simple CFD equations.
 - **Numerical Flux Schemes:** Use Upwind and Central flux calculations.
