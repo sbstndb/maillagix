@@ -50,9 +50,12 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
 
     // Save init state
     saveToText(grid, "frame_000.txt");
+
+    auto dt_dx = dt / grid.dx;
+    auto dt_dy = dt / grid.dy ;
     #pragma omp parallel
     for (int t = 0; t < steps; ++t) {
-        #pragma omp for schedule(guided) 
+        #pragma omp for  schedule(dynamic)
         for (int j = 1; j < grid.ny - 1; ++j) {
             for (int i = 1; i < grid.nx - 1; ++i) {
                 int idx = i + j * grid.nx;
@@ -60,7 +63,7 @@ void solveFV(Grid& grid, double velocity, StencilType stencil, int steps, int sa
                 double flux_e = computeFlux(grid.u[idx], grid.u[idx + 1], stencil, velocity);
                 double flux_s = computeFlux(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
                 double flux_n = computeFlux(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
-                u_new[idx] = grid.u[idx] - dt / grid.dx * (flux_e - flux_w) - dt / grid.dy * (flux_n - flux_s);
+                u_new[idx] = grid.u[idx] - dt_dx * (flux_e - flux_w) - dt_dy * (flux_n - flux_s);
             }
         }
 	#pragma omp single
@@ -104,7 +107,7 @@ int main() {
     double velocity = 1.0;
     StencilType stencil = StencilType::Upwind;
 //    StencilType stencil = StencilType::Central;
-    int steps = 500;
+    int steps = 50;
     int save_interval = 200;
     solveFV(grid, velocity, stencil, steps, save_interval);
 
