@@ -65,7 +65,7 @@ void saveToText(const Grid &grid, const std::string &filename) {
 }
 
 // Finit volume solver
-void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval) {
+void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval, MPI_Comm comm) {
     std::vector<double> u_new(grid.u.size());
     double dt = 0.5 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
 
@@ -75,8 +75,36 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
     auto dt_dx = dt / grid.dx;
     auto dt_dy = dt / grid.dy;
     auto ghost_size = grid.ghost_size;
+
+    int stride = grid.nx + 2 * ghost_size;
+
+    // Création du type colonne pour les échanges MPI
+    MPI_Datatype col_type;
+    MPI_Type_vector(grid.ny, 1, stride, MPI_DOUBLE, &col_type);
+    MPI_Type_commit(&col_type);
+
+    // Identification des voisins
+    int north, south, east, west;
+    MPI_Cart_shift(comm, 0, 1, &west, &east); // Direction x
+    MPI_Cart_shift(comm, 1, 1, &south, &north); // Direction y
+
 #pragma omp parallel
     for (int t = 0; t < steps; ++t) {
+#pragma omp single
+        {
+            // Échange nord-sud
+            MPI_Sendrecv(&grid.u[ghost_size + grid.ny * stride], grid.nx, MPI_DOUBLE, north, 0,
+                         &grid.u[ghost_size + 0 * stride], grid.nx, MPI_DOUBLE, south, 0, comm, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(&grid.u[ghost_size + 1 * stride], grid.nx, MPI_DOUBLE, south, 1,
+                         &grid.u[ghost_size + (grid.ny + 1) * stride], grid.nx, MPI_DOUBLE, north, 1, comm, MPI_STATUS_IGNORE);
+
+            // Échange est-ouest
+            MPI_Sendrecv(&grid.u[grid.nx + ghost_size * stride], 1, col_type, east, 2,
+                         &grid.u[0 + ghost_size * stride], 1, col_type, west, 2, comm, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(&grid.u[1 + ghost_size * stride], 1, col_type, west, 3,
+                         &grid.u[(grid.nx + 1) + ghost_size * stride], 1, col_type, east, 3, comm, MPI_STATUS_IGNORE);
+        }
+
 #pragma omp for  schedule(dynamic)
         for (int j = ghost_size; j < grid.ny + ghost_size; ++j) {
             for (int i = ghost_size; i < grid.nx + ghost_size; ++i) {
@@ -170,9 +198,9 @@ int main(int argc, char **argv) {
     double velocity = 1.0;
     StencilType stencil = StencilType::Upwind;
     //    StencilType stencil = StencilType::Central;
-    int steps = 1000;
-    int save_interval = 50;
-    solveFV(grid, velocity, stencil, steps, save_interval);
+    int steps = 2000;
+    int save_interval = 100;
+    solveFV(grid, velocity, stencil, steps, save_interval, comm_cart);
 
     std::cout << "Simulation finished. The frames are saved from frame_000.txt to frame_100.txt.\n";
     std::cout << "Run 'gnuplot animate.gp' to create the animation.\n";
