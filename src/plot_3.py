@@ -7,10 +7,10 @@ import argparse
 
 # Paramètres globaux
 num_frames = 26  # Nombre total de frames
-grid_size_x = 4096  # Taille totale de la grille en x
-grid_size_y = 4096  # Taille totale de la grille en y
-num_ranks_x = 2  # Nombre de rangs en x
-num_ranks_y = 2  # Nombre de rangs en y
+grid_size_x = 2048  # Taille totale de la grille en x
+grid_size_y = 2048  # Taille totale de la grille en y
+num_ranks_x = 4  # Nombre de rangs en x
+num_ranks_y = 4  # Nombre de rangs en y
 subgrid_size_x = grid_size_x // num_ranks_x  # Taille de la sous-grille en x par rang
 subgrid_size_y = grid_size_y // num_ranks_y  # Taille de la sous-grille en y par rang
 
