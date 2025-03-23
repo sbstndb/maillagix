@@ -11,13 +11,16 @@ if(OpenMP_CXX_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
 
-#find_package(MPI)
+find_package(MPI REQUIRED COMPONENTS CXX)
+find_package(CLI11 CONFIG REQUIRED)
+
+
 #find_package(HDF5 REQUIRED)
 #find_package(HighFive)
 #include_directories(${HDF5_INCLUDE_DIRS} ${HIGHFIVE_INCLUDE_DIR})
 
-add_executable(maillagix src/main.cpp)
-target_link_libraries(maillagix PRIVATE ${HDF5_CXX_LIBRARIES} OpenMP::OpenMP_CXX)# HighFive)
-
-target_include_directories(maillagix PRIVATE include)
+add_executable(maillagix src/main2.cpp)
+target_link_libraries(maillagix PRIVATE ${HDF5_CXX_LIBRARIES} OpenMP::OpenMP_CXX MPI::MPI_CXX CLI11::CLI11)# HighFive)
+include_directories(${CLI11_DIR}/include)
+#target_include_directories(maillagix PRIVATE include)
 

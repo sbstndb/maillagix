@@ -15,7 +15,7 @@ struct Grid {
     int nx, ny; // Grid dimension, 2d for now
     double dx, dy; // Cell size
     int ghost_size;
-    int iproc, jproc;
+    int iproc, jproc ; 
     std::vector<double> u; // solution field
 
     Grid(int nx_, int ny_, double dx_, double dy_, int ghost_size_, int iproc_, int jproc_)
@@ -54,7 +54,7 @@ void saveToText(const Grid &grid, const std::string &filename) {
     auto ghost_size = grid.ghost_size;
     for (int j = ghost_size; j < grid.ny + ghost_size; ++j) {
         for (int i = ghost_size; i < grid.nx + ghost_size; ++i) {
-            file << grid.u[i + j * (grid.nx + 2 * ghost_size) + ghost_size] << " ";
+            file << grid.u[i + j * (grid.nx+2*ghost_size) + ghost_size] << " ";
         }
         file << "\n";
     }
@@ -63,60 +63,122 @@ void saveToText(const Grid &grid, const std::string &filename) {
 
 
 void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
-    int rank;
+
+	int rank ; 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    int north, south, east, west;
+	    int north, south, east, west;
     MPI_Cart_shift(comm, 0, 1, &west, &east);
     MPI_Cart_shift(comm, 1, 1, &south, &north);
 
-    auto ghost_size = grid.ghost_size;
-    int stride = grid.nx + 2 * ghost_size;
 
-    MPI_Datatype column_type;
-    MPI_Type_vector(grid.ny,
-                    1,
-                    stride,
-                    MPI_DOUBLE,
-                    &column_type);
-    MPI_Type_commit(&column_type);
+//    std::cout << " for rank " << rank << " north: " << north << " south :" << south << " east: " << east << " west :" << west << std::endl ; 
+	auto ghost_size = grid.ghost_size; 
+    std::vector<double> send_north(grid.nx), recv_south(grid.nx);
+    std::vector<double> send_south(grid.nx), recv_north(grid.nx);
+    std::vector<double> send_east(grid.ny), recv_west(grid.ny);
+    std::vector<double> send_west(grid.ny), recv_east(grid.ny);
 
+ int stride = grid.nx + 2 * ghost_size;
+  std::cout << "ghost_size " << ghost_size << std::endl ;
+ std::cout << "grid.nx : " << grid.nx << std::endl ; 
+ std::cout << "grid.ny : " << grid.ny<<std::endl ;
+  std::cout << "stride : " << stride<<std::endl ;
 
-    MPI_Sendrecv(
-        &grid.u[ghost_size + (grid.ny + ghost_size - 1) * stride],
-        grid.nx, MPI_DOUBLE, north, 0,
-        &grid.u[ghost_size + (grid.ny + ghost_size) * stride],
-        grid.nx, MPI_DOUBLE, north, 1,
-        comm, MPI_STATUS_IGNORE
-    );
-    MPI_Sendrecv(
-        &grid.u[ghost_size + ghost_size * stride],
-        grid.nx, MPI_DOUBLE, south, 1,
-        &grid.u[ghost_size + (ghost_size - 1) * stride],
-        grid.nx, MPI_DOUBLE, south, 0,
-        comm, MPI_STATUS_IGNORE
-    );
+    MPI_Request requests[32];
+    MPI_Status statuses[32];
 
 
-    MPI_Sendrecv(
-        &grid.u[(grid.nx + ghost_size - 1) + ghost_size * stride],
-        1, column_type, east, 2,
-        &grid.u[(ghost_size - 1) + ghost_size * stride],
-        1, column_type, west, 2,
-        comm, MPI_STATUS_IGNORE);
-    MPI_Sendrecv(
-        &grid.u[ghost_size + ghost_size * stride],
-        1, column_type, west, 3,
-        &grid.u[(grid.nx + ghost_size) + ghost_size * stride],
-        1, column_type, east, 3,
-        comm, MPI_STATUS_IGNORE);
+            // Exchange ghost cells
+            // 1. Pack data to send
+            // North border to send
+            for (int i = 0; i < grid.nx; ++i) {
+                send_north[i] = grid.u[(i + ghost_size) + (grid.ny + ghost_size - 1) * stride];
+            }
+            // South border to send
+            for (int i = 0; i < grid.nx; ++i) {
+                send_south[i] = grid.u[(i + ghost_size) + ghost_size * stride];
+            }
+            // East border to send
+            for (int j = 0; j < grid.ny; ++j) {
+                 send_east[j] = grid.u[(grid.nx + ghost_size - 1) + (j + ghost_size) * stride];
+            }
+            // West border to send
+            for (int j = 0; j < grid.ny; ++j) {
+                send_west[j] = grid.u[ghost_size + (j + ghost_size) * stride];
+            }
 
-    MPI_Type_free(&column_type);
+            // 2. Non-blocking send/receive
+            int req_idx = 0;
+            
+            // Send to north, receive from south
+            if (north != MPI_PROC_NULL) {
+                MPI_Isend(send_north.data(), grid.nx, MPI_DOUBLE, north, 0, comm, &requests[req_idx++]);
+            }
+            if (south != MPI_PROC_NULL) {
+                MPI_Irecv(recv_south.data(), grid.nx, MPI_DOUBLE, south, 0, comm, &requests[req_idx++]);
+            }
+            
+            // Send to south, receive from north
+            if (south != MPI_PROC_NULL) {
+                MPI_Isend(send_south.data(), grid.nx, MPI_DOUBLE, south, 1, comm, &requests[req_idx++]);
+            }
+            if (north != MPI_PROC_NULL) {
+                MPI_Irecv(recv_north.data(), grid.nx, MPI_DOUBLE, north, 1, comm, &requests[req_idx++]);
+            }
+            
+            // Send to east, receive from west
+            if (east != MPI_PROC_NULL) {
+                MPI_Isend(send_east.data(), grid.ny, MPI_DOUBLE, east, 2, comm, &requests[req_idx++]);
+            }
+            if (west != MPI_PROC_NULL) {
+                MPI_Irecv(recv_west.data(), grid.ny, MPI_DOUBLE, west, 2, comm, &requests[req_idx++]);
+            }
+            
+            // Send to west, receive from east
+            if (west != MPI_PROC_NULL) {
+                MPI_Isend(send_west.data(), grid.ny, MPI_DOUBLE, west, 3, comm, &requests[req_idx++]);
+            }
+            if (east != MPI_PROC_NULL) {
+                MPI_Irecv(recv_east.data(), grid.ny, MPI_DOUBLE, east, 3, comm, &requests[req_idx++]);
+            }
+            
+            // 3. Wait for all communications to complete
+            MPI_Waitall(req_idx, requests, statuses);
+            
+            // 4. Unpack received data
+            // South ghost cells
+            if (south != MPI_PROC_NULL) {
+                for (int i = 0; i < grid.nx; ++i) {
+                    grid.u[(i + ghost_size) + (ghost_size - 1) * stride] = recv_south[i];
+                }
+            }
+            // North ghost cells
+            if (north != MPI_PROC_NULL) {
+                for (int i = 0; i < grid.nx; ++i) {
+                    grid.u[(i + ghost_size) + (grid.ny + ghost_size) * stride] = recv_north[i];
+                }
+            }
+            // West ghost cells
+            if (west != MPI_PROC_NULL) {
+                for (int j = 0; j < grid.ny; ++j) {
+                    grid.u[(ghost_size - 1) + (j + ghost_size) * stride] = recv_west[j];
+
+                }
+            }
+            // East ghost cells
+            if (east != MPI_PROC_NULL) {
+                for (int j = 0; j < grid.ny; ++j) {
+                    grid.u[(grid.nx + ghost_size) + (j + ghost_size) * stride] = recv_east[j];
+		    
+                }
+            }
+
 }
 
 void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval, MPI_Comm comm) {
     std::vector<double> u_new(grid.u.size());
     double dt = 0.5 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
-
+	
     int rank = -1;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -136,22 +198,26 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
 
     saveToText(grid, "frame_000.txt");
 
+    std::vector<double> send_north(grid.nx), recv_south(grid.nx);
+    std::vector<double> send_south(grid.nx), recv_north(grid.nx);
+    std::vector<double> send_east(grid.ny), recv_west(grid.ny);
+    std::vector<double> send_west(grid.ny), recv_east(grid.ny);
 
 #pragma omp parallel
     for (int t = 0; t < steps; ++t) {
 #pragma omp single
         {
-            if (rank == 0) {
-                std::cout << "\rStep: " << std::setw(6) << t << " / " << steps << std::flush;
+	    if (rank == 0 ){
+	            std::cout << "\rStep: " << std::setw(6) << t << " / " << steps << std::flush;
+	    } 
+
+	            exchangeGhostCells(grid, comm);
             }
 
-            exchangeGhostCells(grid, comm);
-        }
-
-#pragma omp for schedule(static)
+#pragma omp for schedule(dynamic)
         for (int j = 0; j < grid.ny; ++j) {
             for (int i = 0; i < grid.nx; ++i) {
-                int idx = i + (j + ghost_size) * stride + ghost_size;
+                int idx = i + (j+ghost_size) * stride + ghost_size;
                 auto pos = velocity > 0 ? true : false;
                 double flux_w, flux_e, flux_s, flux_n;
                 if (pos) {
@@ -175,14 +241,13 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
             if ((t + 1) % save_interval == 0) {
                 int frame = (t + 1) / save_interval;
                 std::stringstream ss;
-                ss << "frame_" << std::setfill('0') << std::setw(3) << frame << "_" << grid.iproc << "_" << grid.jproc
-                        << ".txt";
+                ss << "frame_" << std::setfill('0') << std::setw(3) << frame << "_" << grid.iproc << "_" << grid.jproc << ".txt";
                 saveToText(grid, ss.str());
             }
         }
     }
-    if (rank == 0) {
-        std::cout << std::endl;
+    if (rank == 0){
+	    std::cout << std::endl; 
     }
 }
 
@@ -195,10 +260,10 @@ int main(int argc, char **argv) {
 
     // CLI11 setup
     CLI::App app{"Finite Volume Solver"};
-    int nx = 512;
-    int ny = 512;
+    int nx = 512;         
+    int ny = 512;         
     int save_interval = 32;
-    int steps = 320;
+    int steps = 320;       
     std::string stencil_str = "upwind";
 
     app.add_option("--nx", nx, "Number of grid points in x direction")->check(CLI::PositiveNumber);
@@ -215,9 +280,7 @@ int main(int argc, char **argv) {
     } else if (stencil_str == "central") {
         stencil = StencilType::Central;
     } else {
-        if (rank == 0)
-            std::cerr << "Error: Stencil must be 'upwind' or 'central'. Using upwind as default." <<
-                    std::endl;
+        if (rank == 0) std::cerr << "Error: Stencil must be 'upwind' or 'central'. Using upwind as default." << std::endl;
         stencil = StencilType::Upwind;
     }
 
@@ -246,45 +309,30 @@ int main(int argc, char **argv) {
     Grid grid(local_nx, local_ny, dx, dy, ghost_size, iproc, jproc);
 
     // Initial field remains unchanged
-    //
-
-for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
-    int j_global = j_offset + (j - ghost_size);
-    for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
-        int i_global = i_offset + (i - ghost_size);
-        int index = i + j * (local_nx + 2 * ghost_size); // Indice corrigé
-        if (j_global > ny / 8 && j_global < 3 * ny / 8 && i_global > nx / 8 && i_global < 3* nx / 8) {
-            grid.u[index] = 1.0;
-        } else {
-            grid.u[index] = 0.0;
-        }
-    }
-}
-/**
 #pragma omp parallel for collapse(2)
     for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
         for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
+            double x = i * (dx + 2 * ghost_size), y = j * (dy + 2 * ghost_size);
             int index = i + j * (local_nx + 2 * ghost_size) + ghost_size;
-            if (j > local_ny / 2 && j < 3 * local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
-                if (rank == 4) {
-                    grid.u[index] = 0.1;
-                } else {
-                    grid.u[index] = 1.0;
-                }
+            if (j > local_ny / 2 && j < 3*local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
+		    if (rank == 4){
+			grid.u[index] = 0.1;
+		    }
+		    else{
+                grid.u[index] = 1.0;
+		    }
             } else {
                 grid.u[index] = 0.0;
             }
         }
     }
-    **/
 
     double velocity = 1.0;
     solveFV(grid, velocity, stencil, steps, save_interval, comm_cart);
 
     if (rank == 0) {
         std::cout << "Simulation finished.\n";
-        std::cout <<
-                "Run 'python ../src/plot.py --folder folder --output output generate && python ../src/plot.py --folder folder animate ' to create the animation.\n";
+        std::cout << "Run 'python ../src/plot_3.py --folder folder --output output generate && python ../src/plot_3.py --folder folder animate ' to create the animation.\n";
     }
 
     MPI_Finalize();
