@@ -136,10 +136,6 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
 
     saveToText(grid, "frame_000.txt");
 
-    std::vector<double> send_north(grid.nx), recv_south(grid.nx);
-    std::vector<double> send_south(grid.nx), recv_north(grid.nx);
-    std::vector<double> send_east(grid.ny), recv_west(grid.ny);
-    std::vector<double> send_west(grid.ny), recv_east(grid.ny);
 
 #pragma omp parallel
     for (int t = 0; t < steps; ++t) {
@@ -152,7 +148,7 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
             exchangeGhostCells(grid, comm);
         }
 
-#pragma omp for schedule(dynamic)
+#pragma omp for schedule(static)
         for (int j = 0; j < grid.ny; ++j) {
             for (int i = 0; i < grid.nx; ++i) {
                 int idx = i + (j + ghost_size) * stride + ghost_size;
@@ -250,10 +246,24 @@ int main(int argc, char **argv) {
     Grid grid(local_nx, local_ny, dx, dy, ghost_size, iproc, jproc);
 
     // Initial field remains unchanged
+    //
+
+for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
+    int j_global = j_offset + (j - ghost_size);
+    for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
+        int i_global = i_offset + (i - ghost_size);
+        int index = i + j * (local_nx + 2 * ghost_size); // Indice corrigé
+        if (j_global > ny / 8 && j_global < 3 * ny / 8 && i_global > nx / 8 && i_global < 3* nx / 8) {
+            grid.u[index] = 1.0;
+        } else {
+            grid.u[index] = 0.0;
+        }
+    }
+}
+/**
 #pragma omp parallel for collapse(2)
     for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
         for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
-            double x = i * (dx + 2 * ghost_size), y = j * (dy + 2 * ghost_size);
             int index = i + j * (local_nx + 2 * ghost_size) + ghost_size;
             if (j > local_ny / 2 && j < 3 * local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
                 if (rank == 4) {
@@ -266,6 +276,7 @@ int main(int argc, char **argv) {
             }
         }
     }
+    **/
 
     double velocity = 1.0;
     solveFV(grid, velocity, stencil, steps, save_interval, comm_cart);
@@ -273,7 +284,7 @@ int main(int argc, char **argv) {
     if (rank == 0) {
         std::cout << "Simulation finished.\n";
         std::cout <<
-                "Run 'python ../src/plot_3.py --folder folder --output output generate && python ../src/plot_3.py --folder folder animate ' to create the animation.\n";
+                "Run 'python ../src/plot.py --folder folder --output output generate && python ../src/plot.py --folder folder animate ' to create the animation.\n";
     }
 
     MPI_Finalize();
