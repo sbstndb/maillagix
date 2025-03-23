@@ -61,6 +61,120 @@ void saveToText(const Grid &grid, const std::string &filename) {
     file.close();
 }
 
+
+void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
+
+	int rank ; 
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	    int north, south, east, west;
+    MPI_Cart_shift(comm, 0, 1, &west, &east);
+    MPI_Cart_shift(comm, 1, 1, &south, &north);
+
+
+//    std::cout << " for rank " << rank << " north: " << north << " south :" << south << " east: " << east << " west :" << west << std::endl ; 
+	auto ghost_size = grid.ghost_size; 
+    std::vector<double> send_north(grid.nx), recv_south(grid.nx);
+    std::vector<double> send_south(grid.nx), recv_north(grid.nx);
+    std::vector<double> send_east(grid.ny), recv_west(grid.ny);
+    std::vector<double> send_west(grid.ny), recv_east(grid.ny);
+
+ int stride = grid.nx + 2 * ghost_size;
+  std::cout << "ghost_size " << ghost_size << std::endl ;
+ std::cout << "grid.nx : " << grid.nx << std::endl ; 
+ std::cout << "grid.ny : " << grid.ny<<std::endl ;
+  std::cout << "stride : " << stride<<std::endl ;
+
+    MPI_Request requests[32];
+    MPI_Status statuses[32];
+
+
+            // Exchange ghost cells
+            // 1. Pack data to send
+            // North border to send
+            for (int i = 0; i < grid.nx; ++i) {
+                send_north[i] = grid.u[(i + ghost_size) + (grid.ny + ghost_size - 1) * stride];
+            }
+            // South border to send
+            for (int i = 0; i < grid.nx; ++i) {
+                send_south[i] = grid.u[(i + ghost_size) + ghost_size * stride];
+            }
+            // East border to send
+            for (int j = 0; j < grid.ny; ++j) {
+                 send_east[j] = grid.u[(grid.nx + ghost_size - 1) + (j + ghost_size) * stride];
+            }
+            // West border to send
+            for (int j = 0; j < grid.ny; ++j) {
+                send_west[j] = grid.u[ghost_size + (j + ghost_size) * stride];
+            }
+
+            // 2. Non-blocking send/receive
+            int req_idx = 0;
+            
+            // Send to north, receive from south
+            if (north != MPI_PROC_NULL) {
+                MPI_Isend(send_north.data(), grid.nx, MPI_DOUBLE, north, 0, comm, &requests[req_idx++]);
+            }
+            if (south != MPI_PROC_NULL) {
+                MPI_Irecv(recv_south.data(), grid.nx, MPI_DOUBLE, south, 0, comm, &requests[req_idx++]);
+            }
+            
+            // Send to south, receive from north
+            if (south != MPI_PROC_NULL) {
+                MPI_Isend(send_south.data(), grid.nx, MPI_DOUBLE, south, 1, comm, &requests[req_idx++]);
+            }
+            if (north != MPI_PROC_NULL) {
+                MPI_Irecv(recv_north.data(), grid.nx, MPI_DOUBLE, north, 1, comm, &requests[req_idx++]);
+            }
+            
+            // Send to east, receive from west
+            if (east != MPI_PROC_NULL) {
+                MPI_Isend(send_east.data(), grid.ny, MPI_DOUBLE, east, 2, comm, &requests[req_idx++]);
+            }
+            if (west != MPI_PROC_NULL) {
+                MPI_Irecv(recv_west.data(), grid.ny, MPI_DOUBLE, west, 2, comm, &requests[req_idx++]);
+            }
+            
+            // Send to west, receive from east
+            if (west != MPI_PROC_NULL) {
+                MPI_Isend(send_west.data(), grid.ny, MPI_DOUBLE, west, 3, comm, &requests[req_idx++]);
+            }
+            if (east != MPI_PROC_NULL) {
+                MPI_Irecv(recv_east.data(), grid.ny, MPI_DOUBLE, east, 3, comm, &requests[req_idx++]);
+            }
+            
+            // 3. Wait for all communications to complete
+            MPI_Waitall(req_idx, requests, statuses);
+            
+            // 4. Unpack received data
+            // South ghost cells
+            if (south != MPI_PROC_NULL) {
+                for (int i = 0; i < grid.nx; ++i) {
+                    grid.u[(i + ghost_size) + (ghost_size - 1) * stride] = recv_south[i];
+                }
+            }
+            // North ghost cells
+            if (north != MPI_PROC_NULL) {
+                for (int i = 0; i < grid.nx; ++i) {
+                    grid.u[(i + ghost_size) + (grid.ny + ghost_size) * stride] = recv_north[i];
+                }
+            }
+            // West ghost cells
+            if (west != MPI_PROC_NULL) {
+                for (int j = 0; j < grid.ny; ++j) {
+                    grid.u[(ghost_size - 1) + (j + ghost_size) * stride] = recv_west[j];
+
+                }
+            }
+            // East ghost cells
+            if (east != MPI_PROC_NULL) {
+                for (int j = 0; j < grid.ny; ++j) {
+                    grid.u[(grid.nx + ghost_size) + (j + ghost_size) * stride] = recv_east[j];
+		    
+                }
+            }
+
+}
+
 void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval, MPI_Comm comm) {
     std::vector<double> u_new(grid.u.size());
     double dt = 0.5 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
@@ -97,24 +211,25 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
 	            std::cout << "\rStep: " << std::setw(6) << t << " / " << steps << std::flush;
 	    } 
 
+	            exchangeGhostCells(grid, comm);
             }
 
 #pragma omp for schedule(dynamic)
-        for (int j = ghost_size; j < grid.ny + ghost_size; ++j) {
-            for (int i = ghost_size; i < grid.nx + ghost_size; ++i) {
-                int idx = i + j * (grid.nx + 2 * ghost_size) + ghost_size;
+        for (int j = 0; j < grid.ny; ++j) {
+            for (int i = 0; i < grid.nx; ++i) {
+                int idx = i + (j+ghost_size) * stride + ghost_size;
                 auto pos = velocity > 0 ? true : false;
                 double flux_w, flux_e, flux_s, flux_n;
                 if (pos) {
                     flux_w = computeFluxPos(grid.u[idx - 1], grid.u[idx], stencil, velocity);
                     flux_e = computeFluxPos(grid.u[idx], grid.u[idx + 1], stencil, velocity);
-                    flux_s = computeFluxPos(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
-                    flux_n = computeFluxPos(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
+                    flux_s = computeFluxPos(grid.u[idx - stride], grid.u[idx], stencil, velocity);
+                    flux_n = computeFluxPos(grid.u[idx], grid.u[idx + stride], stencil, velocity);
                 } else {
                     flux_w = computeFluxNeg(grid.u[idx - 1], grid.u[idx], stencil, velocity);
                     flux_e = computeFluxNeg(grid.u[idx], grid.u[idx + 1], stencil, velocity);
-                    flux_s = computeFluxNeg(grid.u[idx - grid.nx], grid.u[idx], stencil, velocity);
-                    flux_n = computeFluxNeg(grid.u[idx], grid.u[idx + grid.nx], stencil, velocity);
+                    flux_s = computeFluxNeg(grid.u[idx - stride], grid.u[idx], stencil, velocity);
+                    flux_n = computeFluxNeg(grid.u[idx], grid.u[idx + stride], stencil, velocity);
                 }
                 u_new[idx] = grid.u[idx] - dt_dx * (flux_e - flux_w) - dt_dy * (flux_n - flux_s);
             }
@@ -199,8 +314,13 @@ int main(int argc, char **argv) {
         for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
             double x = i * (dx + 2 * ghost_size), y = j * (dy + 2 * ghost_size);
             int index = i + j * (local_nx + 2 * ghost_size) + ghost_size;
-            if (j > local_ny / 4 && j < local_ny / 2 && i > local_nx / 4 && i < local_nx / 2) {
+            if (j > local_ny / 2 && j < 3*local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
+		    if (rank == 4){
+			grid.u[index] = 0.1;
+		    }
+		    else{
                 grid.u[index] = 1.0;
+		    }
             } else {
                 grid.u[index] = 0.0;
             }
