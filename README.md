@@ -51,6 +51,7 @@ Note : Gnuplot is SLOW. I will implement matplotlib and paraview scripts later.
 # TODO
 - [x] Add an hybrid OpenMP/MPI version
 - [ ] Add MPI shared version (MPI RDMA, or SHMEM implementation)
+- [ ] Support CUDA and Kokkos backends
 - [ ] Improve vectorization
 - [x] Add Matplotlib scripts for the output
 - [ ] Add benchmarking scripts
