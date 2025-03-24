@@ -49,9 +49,9 @@ Note : The `plot.gp` file is assuming the simulation was done with `nx == ny == 
 Note : Gnuplot is SLOW. I will implement matplotlib and paraview scripts later.
 
 # TODO
-- [ ] Add an hybrid OpenMP/MPI version
+- [x] Add an hybrid OpenMP/MPI version
 - [ ] Add MPI shared version (MPI RDMA, or SHMEM implementation)
 - [ ] Improve vectorization
-- [ ] Add Paraview and Matplotlib scripts for the output
+- [x] Add Matplotlib scripts for the output
 - [ ] Add benchmarking scripts
 
