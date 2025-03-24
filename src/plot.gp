@@ -3,8 +3,8 @@ set output 'animation.gif'
 set pm3d map
 set palette rgbformulae 22,13,10
 set cbrange [0:1]
-dx = 1.0 / 4095
-dy = 1.0 / 4095
+dx = 1.0 / 1024
+dy = 1.0 / 1024
 
 set xlabel "x"
 set ylabel "y"
