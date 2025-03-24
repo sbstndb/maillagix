@@ -54,4 +54,9 @@ Note : Gnuplot is SLOW. I will implement matplotlib and paraview scripts later.
 - [ ] Improve vectorization
 - [x] Add Matplotlib scripts for the output
 - [ ] Add benchmarking scripts
+- [ ] Add MUSCL flux
+- [ ] Add Simple BCs like Neumann or Dirichlet
+- [ ] Add simple CFD model (compressible Euler)
+- [ ] Add test-cases
+- [ ] Support 3D computations
 
