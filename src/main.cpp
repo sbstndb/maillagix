@@ -18,10 +18,46 @@ struct Grid {
     int iproc, jproc;
     std::vector<double> u; // solution field
 
+#ifdef USE_MPI_RDMA
+    MPI_Win win ;
+#endif USE_MPI_RDMA
+
     Grid(int nx_, int ny_, double dx_, double dy_, int ghost_size_, int iproc_, int jproc_)
         : nx(nx_), ny(ny_), dx(dx_), dy(dy_), u((nx_ + 2 * ghost_size_) * (ny_ + 2 * ghost_size_), 0.0),
-          ghost_size(ghost_size_), iproc(iproc_), jproc(jproc_) {
-    }
+          ghost_size(ghost_size_), iproc(iproc_), jproc(jproc_)
+#ifdef USE_MPI_RDMA
+	, win(MPI_WIN_NULL)
+#endif	  
+
+	{
+	}
+
+#ifdef USE_MPI_RDMA
+	~Grid(){
+		if (win != MPI_WIN_NULL){
+			MPI_Win_free(&win) ; 
+		}
+	}
+#endif 
+
+#ifdef USE_MPI_RDMA
+	void createMPIRDMAWindow(MPI_Comm comm){
+		MPI_Win_create(u.data(), u.size()*sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &win);
+	}
+#endif
+
+	int getIndex(int i_local, int j_local){
+		return i_local + j_local * (nx + 2*ghost_size);		
+	}
+	double* getPtr(int i_local, int j_local){
+		return &u[getIndex(i_local, j_local)];		
+	}
+
+	const double* getConstPtr(int i_local, int j_local){
+		return &u[getIndex(i_local, j_local)];	
+	}
+
+
 };
 
 // Stencil type
@@ -62,6 +98,84 @@ void saveToText(const Grid &grid, const std::string &filename) {
 }
 
 
+#ifdef USE_MPI_RDMA
+void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int north, south, east, west;
+    MPI_Cart_shift(comm, 0, 1, &west, &east);
+    MPI_Cart_shift(comm, 1, 1, &south, &north);
+
+    auto ghost_size = grid.ghost_size;
+
+
+
+int stride = grid.nx + 2 * ghost_size;
+
+
+    MPI_Datatype column_type ; 
+    MPI_Type_vector(grid.ny, 
+		    1, 
+		    stride, 
+		    MPI_DOUBLE, 
+		    &column_type);
+    MPI_Type_commit(&column_type);
+    MPI_Win_fence(0, grid.win);
+
+    MPI_Win_fence(0, grid.win); 
+
+
+    if (north != MPI_PROC_NULL) {
+        MPI_Put(
+            &grid.u[ghost_size + (ghost_size + grid.ny - 1) * stride], 
+            grid.nx, MPI_DOUBLE,                                        
+            north,                                           
+            ghost_size + (ghost_size - 1) * stride,               
+            grid.nx, MPI_DOUBLE,
+            grid.win
+        );
+    }
+
+    if (south != MPI_PROC_NULL) {
+        MPI_Put(
+            &grid.u[ghost_size + ghost_size * stride],              
+            grid.nx, MPI_DOUBLE,
+            south,
+            ghost_size + (ghost_size + grid.ny) * stride,         
+            grid.nx, MPI_DOUBLE,
+            grid.win
+        );
+    }
+
+    if (east != MPI_PROC_NULL) {
+        MPI_Put(
+            &grid.u[(ghost_size + grid.nx - 1) + ghost_size * stride], 
+            1, column_type,                                          
+            east,
+            (ghost_size-1) + ghost_size * stride,               
+            1, column_type,
+            grid.win
+        );
+    }
+
+    if (west != MPI_PROC_NULL) {
+        MPI_Put(
+            &grid.u[ghost_size + ghost_size * stride],      
+            1, column_type,
+            west,
+            (ghost_size+grid.nx) + ghost_size * stride,       
+            1, column_type,
+            grid.win
+        );
+    }
+    
+    MPI_Win_fence(0, grid.win); // Assertion 0
+    // Free the datatype
+    MPI_Type_free(&column_type);
+
+}
+
+#else
 void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -112,6 +226,8 @@ void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
 
     MPI_Type_free(&column_type);
 }
+#endif
+
 
 void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval, MPI_Comm comm) {
     std::vector<double> u_new(grid.u.size());
@@ -144,6 +260,14 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
             if (rank == 0) {
                 std::cout << "\rStep: " << std::setw(6) << t << " / " << steps << std::flush;
             }
+
+#ifdef USE_MPI_RDMA
+	    // maybe we can create a win for u_new... ?
+            if (grid.win != MPI_WIN_NULL) {
+                MPI_Win_free(&grid.win); 
+            }
+            MPI_Win_create(grid.u.data(), grid.u.size() * sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &grid.win);
+#endif
 
             exchangeGhostCells(grid, comm);
         }
@@ -241,46 +365,53 @@ int main(int argc, char **argv) {
         std::cout << "local_nx: " << local_nx << " local_ny: " << local_ny << std::endl;
     }
 
-    int ghost_size = 1;
-    double dx = 1.0 / nx, dy = 1.0 / ny;
-    Grid grid(local_nx, local_ny, dx, dy, ghost_size, iproc, jproc);
-
-    // Initial field remains unchanged
-    //
-
-for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
-    int j_global = j_offset + (j - ghost_size);
-    for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
-        int i_global = i_offset + (i - ghost_size);
-        int index = i + j * (local_nx + 2 * ghost_size); // Indice corrigé
-        if (j_global > ny / 8 && j_global < 3 * ny / 8 && i_global > nx / 8 && i_global < 3* nx / 8) {
-            grid.u[index] = 1.0;
-        } else {
-            grid.u[index] = 0.0;
-        }
+    {
+	    int ghost_size = 1;
+	    double dx = 1.0 / nx, dy = 1.0 / ny;
+	    Grid grid(local_nx, local_ny, dx, dy, ghost_size, iproc, jproc);
+	
+	
+	#ifdef USE_MPI_RDMA
+		grid.createMPIRDMAWindow(comm_cart)  ; 
+	#endif
+	
+	    // Initial field remains unchanged
+	    //
+	
+	for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
+	    int j_global = j_offset + (j - ghost_size);
+	    for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
+	        int i_global = i_offset + (i - ghost_size);
+	        int index = i + j * (local_nx + 2 * ghost_size); // Indice corrigé
+	        if (j_global > ny / 8 && j_global < 3 * ny / 8 && i_global > nx / 8 && i_global < 3* nx / 8) {
+	            grid.u[index] = 1.0;
+	        } else {
+	            grid.u[index] = 0.0;
+	        }
+	    }
+	}
+	/**
+	#pragma omp parallel for collapse(2)
+	    for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
+	        for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
+	            int index = i + j * (local_nx + 2 * ghost_size) + ghost_size;
+	            if (j > local_ny / 2 && j < 3 * local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
+	                if (rank == 4) {
+	                    grid.u[index] = 0.1;
+	                } else {
+	                    grid.u[index] = 1.0;
+	                }
+	            } else {
+	                grid.u[index] = 0.0;
+	            }
+		        }
+	    }
+	    **/
+	
+	    double velocity = 1.0;
+	    solveFV(grid, velocity, stencil, steps, save_interval, comm_cart);
+	
     }
-}
-/**
-#pragma omp parallel for collapse(2)
-    for (int j = ghost_size; j < local_ny + ghost_size; ++j) {
-        for (int i = ghost_size; i < local_nx + ghost_size; ++i) {
-            int index = i + j * (local_nx + 2 * ghost_size) + ghost_size;
-            if (j > local_ny / 2 && j < 3 * local_ny / 4 && i > local_nx / 4 && i < local_nx / 2) {
-                if (rank == 4) {
-                    grid.u[index] = 0.1;
-                } else {
-                    grid.u[index] = 1.0;
-                }
-            } else {
-                grid.u[index] = 0.0;
-            }
-        }
-    }
-    **/
-
-    double velocity = 1.0;
-    solveFV(grid, velocity, stencil, steps, save_interval, comm_cart);
-
     if (rank == 0) {
         std::cout << "Simulation finished.\n";
         std::cout <<

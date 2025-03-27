@@ -19,6 +19,12 @@ find_package(CLI11 CONFIG REQUIRED)
 #find_package(HighFive)
 #include_directories(${HDF5_INCLUDE_DIRS} ${HIGHFIVE_INCLUDE_DIR})
 
+
+option(USE_MPI_RDMA "Enable MPI RDMA support" OFF)
+if(USE_MPI_RDMA)
+    add_compile_definitions(USE_MPI_RDMA)
+endif()
+
 add_executable(maillagix src/main.cpp)
 target_link_libraries(maillagix PRIVATE ${HDF5_CXX_LIBRARIES} OpenMP::OpenMP_CXX MPI::MPI_CXX CLI11::CLI11)# HighFive)
 include_directories(${CLI11_DIR}/include)
