@@ -120,9 +120,8 @@ int stride = grid.nx + 2 * ghost_size;
 		    MPI_DOUBLE, 
 		    &column_type);
     MPI_Type_commit(&column_type);
-    MPI_Win_fence(0, grid.win);
+    MPI_Win_fence(0, grid.win); // Assertion 0
 
-    MPI_Win_fence(0, grid.win); 
 
 
     if (north != MPI_PROC_NULL) {
@@ -263,10 +262,10 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
 
 #ifdef USE_MPI_RDMA
 	    // maybe we can create a win for u_new... ?
-            if (grid.win != MPI_WIN_NULL) {
-                MPI_Win_free(&grid.win); 
-            }
-            MPI_Win_create(grid.u.data(), grid.u.size() * sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &grid.win);
+//            if (grid.win != MPI_WIN_NULL) {
+//                MPI_Win_free(&grid.win); 
+//            }
+//            MPI_Win_create(grid.u.data(), grid.u.size() * sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &grid.win);
 #endif
 
             exchangeGhostCells(grid, comm);
