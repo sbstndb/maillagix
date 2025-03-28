@@ -16,33 +16,43 @@ struct Grid {
     double dx, dy; // Cell size
     int ghost_size;
     int iproc, jproc;
-    std::vector<double> u; // solution field
+    std::vector<double> u, u_new; // solution field
 
 #ifdef USE_MPI_RDMA
     MPI_Win win ;
+    MPI_Win win_new;
 #endif USE_MPI_RDMA
 
     Grid(int nx_, int ny_, double dx_, double dy_, int ghost_size_, int iproc_, int jproc_)
-        : nx(nx_), ny(ny_), dx(dx_), dy(dy_), u((nx_ + 2 * ghost_size_) * (ny_ + 2 * ghost_size_), 0.0),
-          ghost_size(ghost_size_), iproc(iproc_), jproc(jproc_)
+        : 
+	nx(nx_), 
+	ny(ny_), 
+	dx(dx_), 
+	dy(dy_),
+       	u    ((nx_ + 2 * ghost_size_) * (ny_ + 2 * ghost_size_), 0.0),
+	u_new((nx_ + 2 * ghost_size_) * (ny_ + 2 * ghost_size_), 0.0),
+        ghost_size(ghost_size_), iproc(iproc_), jproc(jproc_)
 #ifdef USE_MPI_RDMA
 	, win(MPI_WIN_NULL)
+	, win_new(MPI_WIN_NULL)
 #endif	  
-
-	{
-	}
+	{}
 
 #ifdef USE_MPI_RDMA
 	~Grid(){
 		if (win != MPI_WIN_NULL){
 			MPI_Win_free(&win) ; 
 		}
+                if (win_new != MPI_WIN_NULL){
+                        MPI_Win_free(&win_new) ;
+                }		
 	}
 #endif 
 
 #ifdef USE_MPI_RDMA
 	void createMPIRDMAWindow(MPI_Comm comm){
 		MPI_Win_create(u.data(), u.size()*sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &win);
+                MPI_Win_create(u_new.data(), u.size()*sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &win_new);
 	}
 #endif
 
@@ -107,10 +117,8 @@ void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
     MPI_Cart_shift(comm, 1, 1, &south, &north);
 
     auto ghost_size = grid.ghost_size;
-
-
-
-int stride = grid.nx + 2 * ghost_size;
+    
+    int stride = grid.nx + 2 * ghost_size;
 
 
     MPI_Datatype column_type ; 
@@ -229,7 +237,6 @@ void exchangeGhostCells(Grid &grid, MPI_Comm comm) {
 
 
 void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int save_interval, MPI_Comm comm) {
-    std::vector<double> u_new(grid.u.size());
     double dt = 0.5 * std::min(grid.dx, grid.dy) / std::abs(velocity); // Condition CFL
 
     int rank = -1;
@@ -262,10 +269,10 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
 
 #ifdef USE_MPI_RDMA
 	    // maybe we can create a win for u_new... ?
-//            if (grid.win != MPI_WIN_NULL) {
-//                MPI_Win_free(&grid.win); 
-//            }
-//            MPI_Win_create(grid.u.data(), grid.u.size() * sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &grid.win);
+          if (grid.win != MPI_WIN_NULL) {
+              MPI_Win_free(&grid.win); 
+          }
+          MPI_Win_create(grid.u.data(), grid.u.size() * sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &grid.win);
 #endif
 
             exchangeGhostCells(grid, comm);
@@ -288,12 +295,13 @@ void solveFV(Grid &grid, double velocity, StencilType stencil, int steps, int sa
                     flux_s = computeFluxNeg(grid.u[idx - stride], grid.u[idx], stencil, velocity);
                     flux_n = computeFluxNeg(grid.u[idx], grid.u[idx + stride], stencil, velocity);
                 }
-                u_new[idx] = grid.u[idx] - dt_dx * (flux_e - flux_w) - dt_dy * (flux_n - flux_s);
+                grid.u_new[idx] = grid.u[idx] - dt_dx * (flux_e - flux_w) - dt_dy * (flux_n - flux_s);
             }
         }
 #pragma omp single
         {
-            swap(grid.u, u_new);
+            swap(grid.u, grid.u_new);
+	    //swap(grid.win, grid.win_new) ; 
 
             if ((t + 1) % save_interval == 0) {
                 int frame = (t + 1) / save_interval;
